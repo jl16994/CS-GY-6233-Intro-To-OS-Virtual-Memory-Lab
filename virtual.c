@@ -53,10 +53,8 @@ static int lfu_victim(struct PTE pt[TABLEMAX], int table_cnt) {
     for (int i = 0; i < table_cnt; i++) {
         if (pt[i].is_valid) {
             if (pt[i].reference_count < min_ref ||
-                (pt[i].reference_count == min_ref &&
-                 pt[i].arrival_timestamp < min_arrival) ||
-                (pt[i].reference_count == min_ref &&
-                 pt[i].arrival_timestamp == min_arrival && i < victim)) {
+                (pt[i].reference_count == min_ref && pt[i].arrival_timestamp < min_arrival) ||
+                (pt[i].reference_count == min_ref && pt[i].arrival_timestamp == min_arrival && (victim == -1 || i < victim))) {
                 min_ref = pt[i].reference_count;
                 min_arrival = pt[i].arrival_timestamp;
                 victim = i;
@@ -90,6 +88,7 @@ int process_page_access_fifo(struct PTE page_table[TABLEMAX], int *table_cnt,
         return frame;
     }
     int victim = fifo_victim(page_table, *table_cnt);
+    if (victim == -1) return -1;
     int frame = page_table[victim].frame_number;
     page_table[victim].is_valid = 0;
     page_table[victim].frame_number = -1;
@@ -106,6 +105,7 @@ int process_page_access_fifo(struct PTE page_table[TABLEMAX], int *table_cnt,
 
 // ------------------------------------
 // Count Page Faults FIFO
+// (delegate to process_page_access_fifo to ensure identical behaviour)
 // ------------------------------------
 int count_page_faults_fifo(struct PTE page_table[TABLEMAX], int table_cnt,
                            int reference_string[REFERENCEMAX], int reference_cnt,
@@ -113,43 +113,23 @@ int count_page_faults_fifo(struct PTE page_table[TABLEMAX], int table_cnt,
     struct PTE pt[TABLEMAX];
     int pool[POOLMAX];
     int free_cnt = frame_cnt;
+    int tc = table_cnt;
+
     for (int i = 0; i < table_cnt; i++) pt[i] = page_table[i];
     for (int i = 0; i < frame_cnt; i++) pool[i] = frame_pool[i];
+
     int faults = 0;
     int timestamp = 0;
+
     for (int i = 0; i < reference_cnt; i++) {
-        timestamp++;
+        timestamp++; // simulate timestamps starting at 1
         int page = reference_string[i];
-        if (!pt[page].is_valid) {
-            faults++;
-            if (free_cnt > 0) {
-                int frame = pool[0];
-                for (int j = 0; j < free_cnt - 1; j++) pool[j] = pool[j + 1];
-                free_cnt--;
-                pt[page].is_valid = 1;
-                pt[page].frame_number = frame;
-                pt[page].arrival_timestamp = timestamp;
-                pt[page].last_access_timestamp = timestamp;
-                pt[page].reference_count = 1;
-            } else {
-                int victim = fifo_victim(pt, table_cnt);
-                int frame = pt[victim].frame_number;
-                pt[victim].is_valid = 0;
-                pt[victim].frame_number = -1;
-                pt[victim].arrival_timestamp = -1;
-                pt[victim].last_access_timestamp = -1;
-                pt[victim].reference_count = -1;
-                pt[page].is_valid = 1;
-                pt[page].frame_number = frame;
-                pt[page].arrival_timestamp = timestamp;
-                pt[page].last_access_timestamp = timestamp;
-                pt[page].reference_count = 1;
-            }
-        } else {
-            pt[page].last_access_timestamp = timestamp;
-            pt[page].reference_count++;
-        }
+        int was_valid = pt[page].is_valid;
+        if (!was_valid) faults++;
+        // update working structures using the canonical process function
+        process_page_access_fifo(pt, &tc, page, pool, &free_cnt, timestamp);
     }
+
     return faults;
 }
 
@@ -177,6 +157,7 @@ int process_page_access_lru(struct PTE page_table[TABLEMAX], int *table_cnt,
         return frame;
     }
     int victim = lru_victim(page_table, *table_cnt);
+    if (victim == -1) return -1;
     int frame = page_table[victim].frame_number;
     page_table[victim].is_valid = 0;
     page_table[victim].frame_number = -1;
@@ -193,6 +174,7 @@ int process_page_access_lru(struct PTE page_table[TABLEMAX], int *table_cnt,
 
 // ------------------------------------
 // Count Page Faults LRU
+// (delegate to process_page_access_lru to ensure identical behaviour)
 // ------------------------------------
 int count_page_faults_lru(struct PTE page_table[TABLEMAX], int table_cnt,
                           int reference_string[REFERENCEMAX], int reference_cnt,
@@ -200,43 +182,22 @@ int count_page_faults_lru(struct PTE page_table[TABLEMAX], int table_cnt,
     struct PTE pt[TABLEMAX];
     int pool[POOLMAX];
     int free_cnt = frame_cnt;
+    int tc = table_cnt;
+
     for (int i = 0; i < table_cnt; i++) pt[i] = page_table[i];
     for (int i = 0; i < frame_cnt; i++) pool[i] = frame_pool[i];
+
     int faults = 0;
     int timestamp = 0;
+
     for (int i = 0; i < reference_cnt; i++) {
         timestamp++;
         int page = reference_string[i];
-        if (!pt[page].is_valid) {
-            faults++;
-            if (free_cnt > 0) {
-                int frame = pool[0];
-                for (int j = 0; j < free_cnt - 1; j++) pool[j] = pool[j + 1];
-                free_cnt--;
-                pt[page].is_valid = 1;
-                pt[page].frame_number = frame;
-                pt[page].arrival_timestamp = timestamp;
-                pt[page].last_access_timestamp = timestamp;
-                pt[page].reference_count = 1;
-            } else {
-                int victim = lru_victim(pt, table_cnt);
-                int frame = pt[victim].frame_number;
-                pt[victim].is_valid = 0;
-                pt[victim].frame_number = -1;
-                pt[victim].arrival_timestamp = -1;
-                pt[victim].last_access_timestamp = -1;
-                pt[victim].reference_count = -1;
-                pt[page].is_valid = 1;
-                pt[page].frame_number = frame;
-                pt[page].arrival_timestamp = timestamp;
-                pt[page].last_access_timestamp = timestamp;
-                pt[page].reference_count = 1;
-            }
-        } else {
-            pt[page].last_access_timestamp = timestamp;
-            pt[page].reference_count++;
-        }
+        int was_valid = pt[page].is_valid;
+        if (!was_valid) faults++;
+        process_page_access_lru(pt, &tc, page, pool, &free_cnt, timestamp);
     }
+
     return faults;
 }
 
@@ -264,6 +225,7 @@ int process_page_access_lfu(struct PTE page_table[TABLEMAX], int *table_cnt,
         return frame;
     }
     int victim = lfu_victim(page_table, *table_cnt);
+    if (victim == -1) return -1;
     int frame = page_table[victim].frame_number;
     page_table[victim].is_valid = 0;
     page_table[victim].frame_number = -1;
@@ -280,6 +242,7 @@ int process_page_access_lfu(struct PTE page_table[TABLEMAX], int *table_cnt,
 
 // ------------------------------------
 // Count Page Faults LFU
+// (delegate to process_page_access_lfu to ensure identical behaviour)
 // ------------------------------------
 int count_page_faults_lfu(struct PTE page_table[TABLEMAX], int table_cnt,
                           int reference_string[REFERENCEMAX], int reference_cnt,
@@ -287,42 +250,21 @@ int count_page_faults_lfu(struct PTE page_table[TABLEMAX], int table_cnt,
     struct PTE pt[TABLEMAX];
     int pool[POOLMAX];
     int free_cnt = frame_cnt;
+    int tc = table_cnt;
+
     for (int i = 0; i < table_cnt; i++) pt[i] = page_table[i];
     for (int i = 0; i < frame_cnt; i++) pool[i] = frame_pool[i];
+
     int faults = 0;
     int timestamp = 0;
+
     for (int i = 0; i < reference_cnt; i++) {
         timestamp++;
         int page = reference_string[i];
-        if (!pt[page].is_valid) {
-            faults++;
-            if (free_cnt > 0) {
-                int frame = pool[0];
-                for (int j = 0; j < free_cnt - 1; j++) pool[j] = pool[j + 1];
-                free_cnt--;
-                pt[page].is_valid = 1;
-                pt[page].frame_number = frame;
-                pt[page].arrival_timestamp = timestamp;
-                pt[page].last_access_timestamp = timestamp;
-                pt[page].reference_count = 1;
-            } else {
-                int victim = lfu_victim(pt, table_cnt);
-                int frame = pt[victim].frame_number;
-                pt[victim].is_valid = 0;
-                pt[victim].frame_number = -1;
-                pt[victim].arrival_timestamp = -1;
-                pt[victim].last_access_timestamp = -1;
-                pt[victim].reference_count = -1;
-                pt[page].is_valid = 1;
-                pt[page].frame_number = frame;
-                pt[page].arrival_timestamp = timestamp;
-                pt[page].last_access_timestamp = timestamp;
-                pt[page].reference_count = 1;
-            }
-        } else {
-            pt[page].last_access_timestamp = timestamp;
-            pt[page].reference_count++;
-        }
+        int was_valid = pt[page].is_valid;
+        if (!was_valid) faults++;
+        process_page_access_lfu(pt, &tc, page, pool, &free_cnt, timestamp);
     }
+
     return faults;
 }

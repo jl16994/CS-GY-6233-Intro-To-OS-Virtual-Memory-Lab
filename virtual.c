@@ -80,7 +80,7 @@ int count_page_faults_fifo(struct PTE page_table[TABLEMAX], int table_cnt,
     int working_pool[POOLMAX];
     int working_frame_cnt = frame_cnt;
     
-    // Copy initial state exactly
+    // Copy initial state
     for (int i = 0; i < table_cnt; i++) {
         working_pt[i] = page_table[i];
     }
@@ -93,24 +93,26 @@ int count_page_faults_fifo(struct PTE page_table[TABLEMAX], int table_cnt,
     
     for (int i = 0; i < reference_cnt; i++) {
         int page_number = reference_string[i];
-        struct PTE *pte = &working_pt[page_number];
         
-        if (!pte->is_valid) {
+        // Check if page is already in memory
+        if (!working_pt[page_number].is_valid) {
             page_faults++;
             
             if (working_frame_cnt > 0) {
+                // Use a free frame
                 int frame = working_pool[0];
                 for (int j = 0; j < working_frame_cnt - 1; j++) {
                     working_pool[j] = working_pool[j + 1];
                 }
                 working_frame_cnt--;
                 
-                pte->is_valid = 1;
-                pte->frame_number = frame;
-                pte->arrival_timestamp = current_timestamp;
-                pte->last_access_timestamp = current_timestamp;
-                pte->reference_count = 1;
+                working_pt[page_number].is_valid = 1;
+                working_pt[page_number].frame_number = frame;
+                working_pt[page_number].arrival_timestamp = current_timestamp;
+                working_pt[page_number].last_access_timestamp = current_timestamp;
+                working_pt[page_number].reference_count = 1;
             } else {
+                // Find victim for FIFO - smallest arrival timestamp
                 int victim_page = -1;
                 int min_arrival = INT_MAX;
                 
@@ -124,22 +126,25 @@ int count_page_faults_fifo(struct PTE page_table[TABLEMAX], int table_cnt,
                 if (victim_page != -1) {
                     int frame = working_pt[victim_page].frame_number;
                     
+                    // Invalidate victim
                     working_pt[victim_page].is_valid = 0;
                     working_pt[victim_page].frame_number = -1;
                     working_pt[victim_page].arrival_timestamp = -1;
                     working_pt[victim_page].last_access_timestamp = -1;
                     working_pt[victim_page].reference_count = -1;
                     
-                    pte->is_valid = 1;
-                    pte->frame_number = frame;
-                    pte->arrival_timestamp = current_timestamp;
-                    pte->last_access_timestamp = current_timestamp;
-                    pte->reference_count = 1;
+                    // Allocate to new page
+                    working_pt[page_number].is_valid = 1;
+                    working_pt[page_number].frame_number = frame;
+                    working_pt[page_number].arrival_timestamp = current_timestamp;
+                    working_pt[page_number].last_access_timestamp = current_timestamp;
+                    working_pt[page_number].reference_count = 1;
                 }
             }
         } else {
-            pte->last_access_timestamp = current_timestamp;
-            pte->reference_count++;
+            // Page hit - update access time
+            working_pt[page_number].last_access_timestamp = current_timestamp;
+            working_pt[page_number].reference_count++;
         }
         
         current_timestamp++;
@@ -215,7 +220,7 @@ int count_page_faults_lru(struct PTE page_table[TABLEMAX], int table_cnt,
     int working_pool[POOLMAX];
     int working_frame_cnt = frame_cnt;
     
-    // Copy initial state exactly
+    // Copy initial state
     for (int i = 0; i < table_cnt; i++) {
         working_pt[i] = page_table[i];
     }
@@ -228,24 +233,26 @@ int count_page_faults_lru(struct PTE page_table[TABLEMAX], int table_cnt,
     
     for (int i = 0; i < reference_cnt; i++) {
         int page_number = reference_string[i];
-        struct PTE *pte = &working_pt[page_number];
         
-        if (!pte->is_valid) {
+        // Check if page is already in memory
+        if (!working_pt[page_number].is_valid) {
             page_faults++;
             
             if (working_frame_cnt > 0) {
+                // Use a free frame
                 int frame = working_pool[0];
                 for (int j = 0; j < working_frame_cnt - 1; j++) {
                     working_pool[j] = working_pool[j + 1];
                 }
                 working_frame_cnt--;
                 
-                pte->is_valid = 1;
-                pte->frame_number = frame;
-                pte->arrival_timestamp = current_timestamp;
-                pte->last_access_timestamp = current_timestamp;
-                pte->reference_count = 1;
+                working_pt[page_number].is_valid = 1;
+                working_pt[page_number].frame_number = frame;
+                working_pt[page_number].arrival_timestamp = current_timestamp;
+                working_pt[page_number].last_access_timestamp = current_timestamp;
+                working_pt[page_number].reference_count = 1;
             } else {
+                // Find victim for LRU - smallest last access timestamp
                 int victim_page = -1;
                 int min_last_access = INT_MAX;
                 
@@ -259,22 +266,25 @@ int count_page_faults_lru(struct PTE page_table[TABLEMAX], int table_cnt,
                 if (victim_page != -1) {
                     int frame = working_pt[victim_page].frame_number;
                     
+                    // Invalidate victim
                     working_pt[victim_page].is_valid = 0;
                     working_pt[victim_page].frame_number = -1;
                     working_pt[victim_page].arrival_timestamp = -1;
                     working_pt[victim_page].last_access_timestamp = -1;
                     working_pt[victim_page].reference_count = -1;
                     
-                    pte->is_valid = 1;
-                    pte->frame_number = frame;
-                    pte->arrival_timestamp = current_timestamp;
-                    pte->last_access_timestamp = current_timestamp;
-                    pte->reference_count = 1;
+                    // Allocate to new page
+                    working_pt[page_number].is_valid = 1;
+                    working_pt[page_number].frame_number = frame;
+                    working_pt[page_number].arrival_timestamp = current_timestamp;
+                    working_pt[page_number].last_access_timestamp = current_timestamp;
+                    working_pt[page_number].reference_count = 1;
                 }
             }
         } else {
-            pte->last_access_timestamp = current_timestamp;
-            pte->reference_count++;
+            // Page hit - update access time
+            working_pt[page_number].last_access_timestamp = current_timestamp;
+            working_pt[page_number].reference_count++;
         }
         
         current_timestamp++;
@@ -359,7 +369,7 @@ int count_page_faults_lfu(struct PTE page_table[TABLEMAX], int table_cnt,
     int working_pool[POOLMAX];
     int working_frame_cnt = frame_cnt;
     
-    // Copy initial state exactly
+    // Copy initial state
     for (int i = 0; i < table_cnt; i++) {
         working_pt[i] = page_table[i];
     }
@@ -372,24 +382,26 @@ int count_page_faults_lfu(struct PTE page_table[TABLEMAX], int table_cnt,
     
     for (int i = 0; i < reference_cnt; i++) {
         int page_number = reference_string[i];
-        struct PTE *pte = &working_pt[page_number];
         
-        if (!pte->is_valid) {
+        // Check if page is already in memory
+        if (!working_pt[page_number].is_valid) {
             page_faults++;
             
             if (working_frame_cnt > 0) {
+                // Use a free frame
                 int frame = working_pool[0];
                 for (int j = 0; j < working_frame_cnt - 1; j++) {
                     working_pool[j] = working_pool[j + 1];
                 }
                 working_frame_cnt--;
                 
-                pte->is_valid = 1;
-                pte->frame_number = frame;
-                pte->arrival_timestamp = current_timestamp;
-                pte->last_access_timestamp = current_timestamp;
-                pte->reference_count = 1;
+                working_pt[page_number].is_valid = 1;
+                working_pt[page_number].frame_number = frame;
+                working_pt[page_number].arrival_timestamp = current_timestamp;
+                working_pt[page_number].last_access_timestamp = current_timestamp;
+                working_pt[page_number].reference_count = 1;
             } else {
+                // Find victim for LFU
                 int victim_page = -1;
                 int min_reference_count = INT_MAX;
                 int min_arrival = INT_MAX;
@@ -412,22 +424,25 @@ int count_page_faults_lfu(struct PTE page_table[TABLEMAX], int table_cnt,
                 if (victim_page != -1) {
                     int frame = working_pt[victim_page].frame_number;
                     
+                    // Invalidate victim
                     working_pt[victim_page].is_valid = 0;
                     working_pt[victim_page].frame_number = -1;
                     working_pt[victim_page].arrival_timestamp = -1;
                     working_pt[victim_page].last_access_timestamp = -1;
                     working_pt[victim_page].reference_count = -1;
                     
-                    pte->is_valid = 1;
-                    pte->frame_number = frame;
-                    pte->arrival_timestamp = current_timestamp;
-                    pte->last_access_timestamp = current_timestamp;
-                    pte->reference_count = 1;
+                    // Allocate to new page
+                    working_pt[page_number].is_valid = 1;
+                    working_pt[page_number].frame_number = frame;
+                    working_pt[page_number].arrival_timestamp = current_timestamp;
+                    working_pt[page_number].last_access_timestamp = current_timestamp;
+                    working_pt[page_number].reference_count = 1;
                 }
             }
         } else {
-            pte->last_access_timestamp = current_timestamp;
-            pte->reference_count++;
+            // Page hit - update access time and count
+            working_pt[page_number].last_access_timestamp = current_timestamp;
+            working_pt[page_number].reference_count++;
         }
         
         current_timestamp++;

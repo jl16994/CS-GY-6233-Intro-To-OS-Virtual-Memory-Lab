@@ -104,8 +104,7 @@ int process_page_access_fifo(struct PTE page_table[TABLEMAX], int *table_cnt,
 }
 
 // ------------------------------------
-// Count Page Faults FIFO
-// (delegate to process_page_access_fifo to ensure identical behaviour)
+// Count Page Faults FIFO (timestamp starts at 0)
 // ------------------------------------
 int count_page_faults_fifo(struct PTE page_table[TABLEMAX], int table_cnt,
                            int reference_string[REFERENCEMAX], int reference_cnt,
@@ -122,12 +121,11 @@ int count_page_faults_fifo(struct PTE page_table[TABLEMAX], int table_cnt,
     int timestamp = 0;
 
     for (int i = 0; i < reference_cnt; i++) {
-        timestamp++; // simulate timestamps starting at 1
         int page = reference_string[i];
         int was_valid = pt[page].is_valid;
         if (!was_valid) faults++;
-        // update working structures using the canonical process function
         process_page_access_fifo(pt, &tc, page, pool, &free_cnt, timestamp);
+        timestamp++;
     }
 
     return faults;
@@ -173,8 +171,7 @@ int process_page_access_lru(struct PTE page_table[TABLEMAX], int *table_cnt,
 }
 
 // ------------------------------------
-// Count Page Faults LRU
-// (delegate to process_page_access_lru to ensure identical behaviour)
+// Count Page Faults LRU (timestamp starts at 0)
 // ------------------------------------
 int count_page_faults_lru(struct PTE page_table[TABLEMAX], int table_cnt,
                           int reference_string[REFERENCEMAX], int reference_cnt,
@@ -191,11 +188,11 @@ int count_page_faults_lru(struct PTE page_table[TABLEMAX], int table_cnt,
     int timestamp = 0;
 
     for (int i = 0; i < reference_cnt; i++) {
-        timestamp++;
         int page = reference_string[i];
         int was_valid = pt[page].is_valid;
         if (!was_valid) faults++;
         process_page_access_lru(pt, &tc, page, pool, &free_cnt, timestamp);
+        timestamp++;
     }
 
     return faults;
@@ -241,8 +238,7 @@ int process_page_access_lfu(struct PTE page_table[TABLEMAX], int *table_cnt,
 }
 
 // ------------------------------------
-// Count Page Faults LFU
-// (delegate to process_page_access_lfu to ensure identical behaviour)
+// Count Page Faults LFU (timestamp starts at 1)
 // ------------------------------------
 int count_page_faults_lfu(struct PTE page_table[TABLEMAX], int table_cnt,
                           int reference_string[REFERENCEMAX], int reference_cnt,
@@ -256,14 +252,14 @@ int count_page_faults_lfu(struct PTE page_table[TABLEMAX], int table_cnt,
     for (int i = 0; i < frame_cnt; i++) pool[i] = frame_pool[i];
 
     int faults = 0;
-    int timestamp = 0;
+    int timestamp = 1;
 
     for (int i = 0; i < reference_cnt; i++) {
-        timestamp++;
         int page = reference_string[i];
         int was_valid = pt[page].is_valid;
         if (!was_valid) faults++;
         process_page_access_lfu(pt, &tc, page, pool, &free_cnt, timestamp);
+        timestamp++;
     }
 
     return faults;

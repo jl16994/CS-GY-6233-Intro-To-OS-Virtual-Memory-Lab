@@ -104,7 +104,7 @@ int process_page_access_fifo(struct PTE page_table[TABLEMAX], int *table_cnt,
 }
 
 // ------------------------------------
-// Count Page Faults FIFO (timestamp starts at 0)
+// Count Page Faults FIFO (timestamp starts at 1)
 // ------------------------------------
 int count_page_faults_fifo(struct PTE page_table[TABLEMAX], int table_cnt,
                            int reference_string[REFERENCEMAX], int reference_cnt,
@@ -118,7 +118,7 @@ int count_page_faults_fifo(struct PTE page_table[TABLEMAX], int table_cnt,
     for (int i = 0; i < frame_cnt; i++) pool[i] = frame_pool[i];
 
     int faults = 0;
-    int timestamp = 0;
+    int timestamp = 1;
 
     for (int i = 0; i < reference_cnt; i++) {
         int page = reference_string[i];
@@ -171,7 +171,7 @@ int process_page_access_lru(struct PTE page_table[TABLEMAX], int *table_cnt,
 }
 
 // ------------------------------------
-// Count Page Faults LRU (timestamp starts at 0)
+// Count Page Faults LRU (timestamp starts at 1)
 // ------------------------------------
 int count_page_faults_lru(struct PTE page_table[TABLEMAX], int table_cnt,
                           int reference_string[REFERENCEMAX], int reference_cnt,
@@ -185,7 +185,7 @@ int count_page_faults_lru(struct PTE page_table[TABLEMAX], int table_cnt,
     for (int i = 0; i < frame_cnt; i++) pool[i] = frame_pool[i];
 
     int faults = 0;
-    int timestamp = 0;
+    int timestamp = 1;
 
     for (int i = 0; i < reference_cnt; i++) {
         int page = reference_string[i];

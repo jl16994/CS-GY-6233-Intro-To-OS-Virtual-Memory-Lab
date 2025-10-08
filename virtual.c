@@ -13,59 +13,6 @@ struct PTE {
     int reference_count;
 };
 
-// Helper function to find victim for FIFO
-int find_fifo_victim(struct PTE page_table[TABLEMAX], int table_cnt) {
-    int victim_page = -1;
-    int min_arrival = INT_MAX;
-    
-    for (int i = 0; i < table_cnt; i++) {
-        if (page_table[i].is_valid && page_table[i].arrival_timestamp < min_arrival) {
-            min_arrival = page_table[i].arrival_timestamp;
-            victim_page = i;
-        }
-    }
-    return victim_page;
-}
-
-// Helper function to find victim for LRU
-int find_lru_victim(struct PTE page_table[TABLEMAX], int table_cnt) {
-    int victim_page = -1;
-    int min_last_access = INT_MAX;
-    
-    for (int i = 0; i < table_cnt; i++) {
-        if (page_table[i].is_valid && page_table[i].last_access_timestamp < min_last_access) {
-            min_last_access = page_table[i].last_access_timestamp;
-            victim_page = i;
-        }
-    }
-    return victim_page;
-}
-
-// Helper function to find victim for LFU
-int find_lfu_victim(struct PTE page_table[TABLEMAX], int table_cnt) {
-    int victim_page = -1;
-    int min_reference_count = INT_MAX;
-    int min_arrival = INT_MAX;
-    
-    // First find the minimum reference count
-    for (int i = 0; i < table_cnt; i++) {
-        if (page_table[i].is_valid && page_table[i].reference_count < min_reference_count) {
-            min_reference_count = page_table[i].reference_count;
-        }
-    }
-    
-    // Then find the page with that reference count and smallest arrival time
-    for (int i = 0; i < table_cnt; i++) {
-        if (page_table[i].is_valid && page_table[i].reference_count == min_reference_count) {
-            if (page_table[i].arrival_timestamp < min_arrival) {
-                min_arrival = page_table[i].arrival_timestamp;
-                victim_page = i;
-            }
-        }
-    }
-    return victim_page;
-}
-
 // FIFO - Process Page Access
 int process_page_access_fifo(struct PTE page_table[TABLEMAX], int *table_cnt, 
                             int page_number, int frame_pool[POOLMAX], 
@@ -101,7 +48,16 @@ int process_page_access_fifo(struct PTE page_table[TABLEMAX], int *table_cnt,
     }
     
     // No free frames, need to replace a page
-    int victim_page = find_fifo_victim(page_table, *table_cnt);
+    int victim_page = -1;
+    int min_arrival = INT_MAX;
+    
+    // Find the page with smallest arrival timestamp (FIFO)
+    for (int i = 0; i < *table_cnt; i++) {
+        if (page_table[i].is_valid && page_table[i].arrival_timestamp < min_arrival) {
+            min_arrival = page_table[i].arrival_timestamp;
+            victim_page = i;
+        }
+    }
     
     if (victim_page == -1) {
         return -1;
@@ -177,7 +133,16 @@ int count_page_faults_fifo(struct PTE page_table[TABLEMAX], int table_cnt,
                 pte->reference_count = 1;
             } else {
                 // No free frames, need to replace a page
-                int victim_page = find_fifo_victim(working_pt, table_cnt);
+                int victim_page = -1;
+                int min_arrival = INT_MAX;
+                
+                // Find the page with smallest arrival timestamp (FIFO)
+                for (int j = 0; j < table_cnt; j++) {
+                    if (working_pt[j].is_valid && working_pt[j].arrival_timestamp < min_arrival) {
+                        min_arrival = working_pt[j].arrival_timestamp;
+                        victim_page = j;
+                    }
+                }
                 
                 if (victim_page == -1) {
                     continue;
@@ -247,7 +212,16 @@ int process_page_access_lru(struct PTE page_table[TABLEMAX], int *table_cnt,
     }
     
     // No free frames, need to replace a page (LRU)
-    int victim_page = find_lru_victim(page_table, *table_cnt);
+    int victim_page = -1;
+    int min_last_access = INT_MAX;
+    
+    // Find the page with smallest last access timestamp (LRU)
+    for (int i = 0; i < *table_cnt; i++) {
+        if (page_table[i].is_valid && page_table[i].last_access_timestamp < min_last_access) {
+            min_last_access = page_table[i].last_access_timestamp;
+            victim_page = i;
+        }
+    }
     
     if (victim_page == -1) {
         return -1;
@@ -273,7 +247,7 @@ int process_page_access_lru(struct PTE page_table[TABLEMAX], int *table_cnt,
     return frame;
 }
 
-// LRU - Count Page Faults
+// LRU - Count Page Faults  
 int count_page_faults_lru(struct PTE page_table[TABLEMAX], int table_cnt,
                          int reference_string[REFERENCEMAX], int reference_cnt,
                          int frame_pool[POOLMAX], int frame_cnt) {
@@ -323,7 +297,16 @@ int count_page_faults_lru(struct PTE page_table[TABLEMAX], int table_cnt,
                 pte->reference_count = 1;
             } else {
                 // No free frames, need to replace a page (LRU)
-                int victim_page = find_lru_victim(working_pt, table_cnt);
+                int victim_page = -1;
+                int min_last_access = INT_MAX;
+                
+                // Find the page with smallest last access timestamp (LRU)
+                for (int j = 0; j < table_cnt; j++) {
+                    if (working_pt[j].is_valid && working_pt[j].last_access_timestamp < min_last_access) {
+                        min_last_access = working_pt[j].last_access_timestamp;
+                        victim_page = j;
+                    }
+                }
                 
                 if (victim_page == -1) {
                     continue;
@@ -393,7 +376,25 @@ int process_page_access_lfu(struct PTE page_table[TABLEMAX], int *table_cnt,
     }
     
     // No free frames, need to replace a page (LFU)
-    int victim_page = find_lfu_victim(page_table, *table_cnt);
+    int victim_page = -1;
+    int min_reference_count = INT_MAX;
+    int min_arrival = INT_MAX;
+    
+    // Find the page with smallest reference count, and if tie, smallest arrival timestamp
+    for (int i = 0; i < *table_cnt; i++) {
+        if (page_table[i].is_valid) {
+            if (page_table[i].reference_count < min_reference_count) {
+                min_reference_count = page_table[i].reference_count;
+                min_arrival = page_table[i].arrival_timestamp;
+                victim_page = i;
+            } else if (page_table[i].reference_count == min_reference_count) {
+                if (page_table[i].arrival_timestamp < min_arrival) {
+                    min_arrival = page_table[i].arrival_timestamp;
+                    victim_page = i;
+                }
+            }
+        }
+    }
     
     if (victim_page == -1) {
         return -1;
@@ -469,7 +470,25 @@ int count_page_faults_lfu(struct PTE page_table[TABLEMAX], int table_cnt,
                 pte->reference_count = 1;
             } else {
                 // No free frames, need to replace a page (LFU)
-                int victim_page = find_lfu_victim(working_pt, table_cnt);
+                int victim_page = -1;
+                int min_reference_count = INT_MAX;
+                int min_arrival = INT_MAX;
+                
+                // Find the page with smallest reference count, and if tie, smallest arrival timestamp
+                for (int j = 0; j < table_cnt; j++) {
+                    if (working_pt[j].is_valid) {
+                        if (working_pt[j].reference_count < min_reference_count) {
+                            min_reference_count = working_pt[j].reference_count;
+                            min_arrival = working_pt[j].arrival_timestamp;
+                            victim_page = j;
+                        } else if (working_pt[j].reference_count == min_reference_count) {
+                            if (working_pt[j].arrival_timestamp < min_arrival) {
+                                min_arrival = working_pt[j].arrival_timestamp;
+                                victim_page = j;
+                            }
+                        }
+                    }
+                }
                 
                 if (victim_page == -1) {
                     continue;

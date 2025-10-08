@@ -104,7 +104,7 @@ int process_page_access_fifo(struct PTE page_table[TABLEMAX], int *table_cnt,
 }
 
 // ------------------------------------
-// Count Page Faults FIFO (timestamp starts at 1)
+// Count Page Faults FIFO (increment BEFORE access)
 // ------------------------------------
 int count_page_faults_fifo(struct PTE page_table[TABLEMAX], int table_cnt,
                            int reference_string[REFERENCEMAX], int reference_cnt,
@@ -118,14 +118,14 @@ int count_page_faults_fifo(struct PTE page_table[TABLEMAX], int table_cnt,
     for (int i = 0; i < frame_cnt; i++) pool[i] = frame_pool[i];
 
     int faults = 0;
-    int timestamp = 1;
+    int timestamp = 0;
 
     for (int i = 0; i < reference_cnt; i++) {
+        timestamp++; // increment before access
         int page = reference_string[i];
         int was_valid = pt[page].is_valid;
         if (!was_valid) faults++;
         process_page_access_fifo(pt, &tc, page, pool, &free_cnt, timestamp);
-        timestamp++;
     }
 
     return faults;
@@ -171,7 +171,7 @@ int process_page_access_lru(struct PTE page_table[TABLEMAX], int *table_cnt,
 }
 
 // ------------------------------------
-// Count Page Faults LRU (timestamp starts at 1)
+// Count Page Faults LRU (increment BEFORE access)
 // ------------------------------------
 int count_page_faults_lru(struct PTE page_table[TABLEMAX], int table_cnt,
                           int reference_string[REFERENCEMAX], int reference_cnt,
@@ -185,14 +185,14 @@ int count_page_faults_lru(struct PTE page_table[TABLEMAX], int table_cnt,
     for (int i = 0; i < frame_cnt; i++) pool[i] = frame_pool[i];
 
     int faults = 0;
-    int timestamp = 1;
+    int timestamp = 0;
 
     for (int i = 0; i < reference_cnt; i++) {
+        timestamp++; // increment before access
         int page = reference_string[i];
         int was_valid = pt[page].is_valid;
         if (!was_valid) faults++;
         process_page_access_lru(pt, &tc, page, pool, &free_cnt, timestamp);
-        timestamp++;
     }
 
     return faults;

@@ -1,280 +1,436 @@
-
-/*
- * virtual.c
- * Implementation of page replacement helpers and counting functions.
- *
- * Provides:
- *  - struct PTE { ... };
- *  - process_page_access_fifo, count_page_faults_fifo
- *  - process_page_access_lru, count_page_faults_lru
- *  - process_page_access_lfu, count_page_faults_lfu
- *
- * Matches the expected signatures used by the autograder/test harness.
- */
-
 #include <stdio.h>
 #include <limits.h>
+#include "oslabs.h"
 
-#define TABLEMAX 100
-#define POOLMAX 100
-#define REFERENCEMAX 100
-
-struct PTE {
-    int is_valid;
-    int frame_number;
-    int arrival_timestamp;
-    int last_access_timestamp;
-    int reference_count;
-};
-
-// ------------------------------------
-// Helper functions for victim selection
-// ------------------------------------
-static int fifo_victim(struct PTE pt[TABLEMAX], int table_cnt) {
-    int victim = -1;
-    int min_arrival = INT_MAX;
-    for (int i = 0; i < table_cnt; i++) {
-        if (pt[i].is_valid) {
-            if (pt[i].arrival_timestamp < min_arrival ||
-                (pt[i].arrival_timestamp == min_arrival && (victim == -1 || pt[i].frame_number < pt[victim].frame_number))) {
-                min_arrival = pt[i].arrival_timestamp;
-                victim = i;
-            }
-        }
+int process_page_access_fifo(struct PTE page_table[TABLEMAX], int *table_cnt, int page_number, int frame_pool[POOLMAX], int *frame_cnt, int current_timestamp) {
+    // Check if page is already in memory
+    if (page_table[page_number].is_valid) {
+        page_table[page_number].last_access_timestamp = current_timestamp;
+        page_table[page_number].reference_count++;
+        return page_table[page_number].frame_number;
     }
-    return victim;
-}
-
-static int lru_victim(struct PTE pt[TABLEMAX], int table_cnt) {
-    int victim = -1;
-    int min_last = INT_MAX;
-    for (int i = 0; i < table_cnt; i++) {
-        if (pt[i].is_valid) {
-            if (pt[i].last_access_timestamp < min_last ||
-                (pt[i].last_access_timestamp == min_last && (victim == -1 || pt[i].frame_number < pt[victim].frame_number))) {
-                min_last = pt[i].last_access_timestamp;
-                victim = i;
-            }
-        }
-    }
-    return victim;
-}
-
-static int lfu_victim(struct PTE pt[TABLEMAX], int table_cnt) {
-    int victim = -1;
-    int min_ref = INT_MAX;
-    int min_arrival = INT_MAX;
-    for (int i = 0; i < table_cnt; i++) {
-        if (pt[i].is_valid) {
-            if (pt[i].reference_count < min_ref ||
-                (pt[i].reference_count == min_ref && pt[i].arrival_timestamp < min_arrival) ||
-                (pt[i].reference_count == min_ref && pt[i].arrival_timestamp == min_arrival && (victim == -1 || i < victim))) {
-                min_ref = pt[i].reference_count;
-                min_arrival = pt[i].arrival_timestamp;
-                victim = i;
-            }
-        }
-    }
-    return victim;
-}
-
-// ------------------------------------
-// Process Page Access FIFO
-// ------------------------------------
-int process_page_access_fifo(struct PTE page_table[TABLEMAX], int *table_cnt,
-                             int page_number, int frame_pool[POOLMAX],
-                             int *frame_cnt, int current_timestamp) {
-    struct PTE *pte = &page_table[page_number];
-    if (pte->is_valid) {
-        pte->last_access_timestamp = current_timestamp;
-        pte->reference_count++;
-        return pte->frame_number;
-    }
+    
+    // Page fault - check if free frames available
     if (*frame_cnt > 0) {
+        // Use a free frame from pool
         int frame = frame_pool[0];
-        for (int i = 0; i < *frame_cnt - 1; i++) frame_pool[i] = frame_pool[i + 1];
+        
+        // Remove frame from pool
+        for (int i = 0; i < *frame_cnt - 1; i++) {
+            frame_pool[i] = frame_pool[i + 1];
+        }
         (*frame_cnt)--;
-        pte->is_valid = 1;
-        pte->frame_number = frame;
-        pte->arrival_timestamp = current_timestamp;
-        pte->last_access_timestamp = current_timestamp;
-        pte->reference_count = 1;
+        
+        // Update page table entry
+        page_table[page_number].is_valid = 1;
+        page_table[page_number].frame_number = frame;
+        page_table[page_number].arrival_timestamp = current_timestamp;
+        page_table[page_number].last_access_timestamp = current_timestamp;
+        page_table[page_number].reference_count = 1;
+        
         return frame;
     }
-    int victim = fifo_victim(page_table, *table_cnt);
-    if (victim == -1) return -1;
-    int frame = page_table[victim].frame_number;
-    page_table[victim].is_valid = 0;
-    page_table[victim].frame_number = -1;
-    page_table[victim].arrival_timestamp = -1;
-    page_table[victim].last_access_timestamp = -1;
-    page_table[victim].reference_count = -1;
-    pte->is_valid = 1;
-    pte->frame_number = frame;
-    pte->arrival_timestamp = current_timestamp;
-    pte->last_access_timestamp = current_timestamp;
-    pte->reference_count = 1;
-    return frame;
+    
+    // No free frames - need to replace a page using FIFO
+    int oldest_timestamp = INT_MAX;
+    int page_to_replace = -1;
+    
+    // Find page with smallest arrival timestamp
+    for (int i = 0; i < *table_cnt; i++) {
+        if (page_table[i].is_valid && page_table[i].arrival_timestamp < oldest_timestamp) {
+            oldest_timestamp = page_table[i].arrival_timestamp;
+            page_to_replace = i;
+        }
+    }
+    
+    if (page_to_replace != -1) {
+        int frame = page_table[page_to_replace].frame_number;
+        
+        // Evict the old page
+        page_table[page_to_replace].is_valid = 0;
+        page_table[page_to_replace].frame_number = -1;
+        page_table[page_to_replace].arrival_timestamp = -1;
+        page_table[page_to_replace].last_access_timestamp = -1;
+        page_table[page_to_replace].reference_count = -1;
+        
+        // Load new page
+        page_table[page_number].is_valid = 1;
+        page_table[page_number].frame_number = frame;
+        page_table[page_number].arrival_timestamp = current_timestamp;
+        page_table[page_number].last_access_timestamp = current_timestamp;
+        page_table[page_number].reference_count = 1;
+        
+        return frame;
+    }
+    
+    return -1; // Should not reach here
 }
 
-// ------------------------------------
-// Count Page Faults FIFO (increment BEFORE access)
-// ------------------------------------
-int count_page_faults_fifo(struct PTE page_table[TABLEMAX], int table_cnt,
-                           int reference_string[REFERENCEMAX], int reference_cnt,
-                           int frame_pool[POOLMAX], int frame_cnt) {
-    struct PTE pt[TABLEMAX];
-    int pool[POOLMAX];
-    int free_cnt = frame_cnt;
-    int tc = table_cnt;
-
-    for (int i = 0; i < table_cnt; i++) pt[i] = page_table[i];
-    for (int i = 0; i < frame_cnt; i++) pool[i] = frame_pool[i];
-
+int count_page_faults_fifo(struct PTE page_table[TABLEMAX], int table_cnt, int reference_string[REFERENCEMAX], int reference_cnt, int frame_pool[POOLMAX], int frame_cnt) {
     int faults = 0;
-    int timestamp = 0;
-
-    for (int i = 0; i < reference_cnt; i++) {
-        int page = reference_string[i];
-        int was_valid = pt[page].is_valid;
-        process_page_access_fifo(pt, &tc, page, pool, &free_cnt, timestamp);
-        timestamp++; // increment after access
-        if (!was_valid) faults++;
+    int current_timestamp = 1;
+    
+    // Create a copy of frame pool and page table for simulation
+    int local_frame_pool[POOLMAX];
+    int local_frame_cnt = frame_cnt;
+    struct PTE local_page_table[TABLEMAX];
+    
+    for (int i = 0; i < table_cnt; i++) {
+        local_page_table[i] = page_table[i];
     }
-
+    for (int i = 0; i < frame_cnt; i++) {
+        local_frame_pool[i] = frame_pool[i];
+    }
+    
+    for (int i = 0; i < reference_cnt; i++) {
+        int page_number = reference_string[i];
+        
+        if (!local_page_table[page_number].is_valid) {
+            faults++;
+            
+            if (local_frame_cnt > 0) {
+                // Use free frame
+                int frame = local_frame_pool[0];
+                for (int j = 0; j < local_frame_cnt - 1; j++) {
+                    local_frame_pool[j] = local_frame_pool[j + 1];
+                }
+                local_frame_cnt--;
+                
+                local_page_table[page_number].is_valid = 1;
+                local_page_table[page_number].frame_number = frame;
+                local_page_table[page_number].arrival_timestamp = current_timestamp;
+                local_page_table[page_number].last_access_timestamp = current_timestamp;
+                local_page_table[page_number].reference_count = 1;
+            } else {
+                // Replace using FIFO
+                int oldest_timestamp = INT_MAX;
+                int page_to_replace = -1;
+                
+                for (int j = 0; j < table_cnt; j++) {
+                    if (local_page_table[j].is_valid && local_page_table[j].arrival_timestamp < oldest_timestamp) {
+                        oldest_timestamp = local_page_table[j].arrival_timestamp;
+                        page_to_replace = j;
+                    }
+                }
+                
+                if (page_to_replace != -1) {
+                    int frame = local_page_table[page_to_replace].frame_number;
+                    
+                    local_page_table[page_to_replace].is_valid = 0;
+                    local_page_table[page_to_replace].frame_number = -1;
+                    local_page_table[page_to_replace].arrival_timestamp = -1;
+                    local_page_table[page_to_replace].last_access_timestamp = -1;
+                    local_page_table[page_to_replace].reference_count = -1;
+                    
+                    local_page_table[page_number].is_valid = 1;
+                    local_page_table[page_number].frame_number = frame;
+                    local_page_table[page_number].arrival_timestamp = current_timestamp;
+                    local_page_table[page_number].last_access_timestamp = current_timestamp;
+                    local_page_table[page_number].reference_count = 1;
+                }
+            }
+        } else {
+            // Page is in memory, update access info
+            local_page_table[page_number].last_access_timestamp = current_timestamp;
+            local_page_table[page_number].reference_count++;
+        }
+        
+        current_timestamp++;
+    }
+    
     return faults;
 }
 
-// ------------------------------------
-// Process Page Access LRU
-// ------------------------------------
-int process_page_access_lru(struct PTE page_table[TABLEMAX], int *table_cnt,
-                            int page_number, int frame_pool[POOLMAX],
-                            int *frame_cnt, int current_timestamp) {
-    struct PTE *pte = &page_table[page_number];
-    if (pte->is_valid) {
-        pte->last_access_timestamp = current_timestamp;
-        pte->reference_count++;
-        return pte->frame_number;
+int process_page_access_lru(struct PTE page_table[TABLEMAX], int *table_cnt, int page_number, int frame_pool[POOLMAX], int *frame_cnt, int current_timestamp) {
+    // Check if page is already in memory
+    if (page_table[page_number].is_valid) {
+        page_table[page_number].last_access_timestamp = current_timestamp;
+        page_table[page_number].reference_count++;
+        return page_table[page_number].frame_number;
     }
+    
+    // Page fault - check if free frames available
     if (*frame_cnt > 0) {
+        // Use a free frame from pool
         int frame = frame_pool[0];
-        for (int i = 0; i < *frame_cnt - 1; i++) frame_pool[i] = frame_pool[i + 1];
+        
+        // Remove frame from pool
+        for (int i = 0; i < *frame_cnt - 1; i++) {
+            frame_pool[i] = frame_pool[i + 1];
+        }
         (*frame_cnt)--;
-        pte->is_valid = 1;
-        pte->frame_number = frame;
-        pte->arrival_timestamp = current_timestamp;
-        pte->last_access_timestamp = current_timestamp;
-        pte->reference_count = 1;
+        
+        // Update page table entry
+        page_table[page_number].is_valid = 1;
+        page_table[page_number].frame_number = frame;
+        page_table[page_number].arrival_timestamp = current_timestamp;
+        page_table[page_number].last_access_timestamp = current_timestamp;
+        page_table[page_number].reference_count = 1;
+        
         return frame;
     }
-    int victim = lru_victim(page_table, *table_cnt);
-    if (victim == -1) return -1;
-    int frame = page_table[victim].frame_number;
-    page_table[victim].is_valid = 0;
-    page_table[victim].frame_number = -1;
-    page_table[victim].arrival_timestamp = -1;
-    page_table[victim].last_access_timestamp = -1;
-    page_table[victim].reference_count = -1;
-    pte->is_valid = 1;
-    pte->frame_number = frame;
-    pte->arrival_timestamp = current_timestamp;
-    pte->last_access_timestamp = current_timestamp;
-    pte->reference_count = 1;
-    return frame;
+    
+    // No free frames - need to replace a page using LRU
+    int oldest_access = INT_MAX;
+    int page_to_replace = -1;
+    
+    // Find page with smallest last access timestamp
+    for (int i = 0; i < *table_cnt; i++) {
+        if (page_table[i].is_valid && page_table[i].last_access_timestamp < oldest_access) {
+            oldest_access = page_table[i].last_access_timestamp;
+            page_to_replace = i;
+        }
+    }
+    
+    if (page_to_replace != -1) {
+        int frame = page_table[page_to_replace].frame_number;
+        
+        // Evict the old page
+        page_table[page_to_replace].is_valid = 0;
+        page_table[page_to_replace].frame_number = -1;
+        page_table[page_to_replace].arrival_timestamp = -1;
+        page_table[page_to_replace].last_access_timestamp = -1;
+        page_table[page_to_replace].reference_count = -1;
+        
+        // Load new page
+        page_table[page_number].is_valid = 1;
+        page_table[page_number].frame_number = frame;
+        page_table[page_number].arrival_timestamp = current_timestamp;
+        page_table[page_number].last_access_timestamp = current_timestamp;
+        page_table[page_number].reference_count = 1;
+        
+        return frame;
+    }
+    
+    return -1; // Should not reach here
 }
 
-// ------------------------------------
-// Count Page Faults LRU (increment BEFORE access)
-// ------------------------------------
-int count_page_faults_lru(struct PTE page_table[TABLEMAX], int table_cnt,
-                          int reference_string[REFERENCEMAX], int reference_cnt,
-                          int frame_pool[POOLMAX], int frame_cnt) {
-    struct PTE pt[TABLEMAX];
-    int pool[POOLMAX];
-    int free_cnt = frame_cnt;
-    int tc = table_cnt;
-
-    for (int i = 0; i < table_cnt; i++) pt[i] = page_table[i];
-    for (int i = 0; i < frame_cnt; i++) pool[i] = frame_pool[i];
-
+int count_page_faults_lru(struct PTE page_table[TABLEMAX], int table_cnt, int reference_string[REFERENCEMAX], int reference_cnt, int frame_pool[POOLMAX], int frame_cnt) {
     int faults = 0;
-    int timestamp = 0;
-
-    for (int i = 0; i < reference_cnt; i++) {
-        int page = reference_string[i];
-        int was_valid = pt[page].is_valid;
-        process_page_access_lru(pt, &tc, page, pool, &free_cnt, timestamp);
-        timestamp++; // increment after access
-        if (!was_valid) faults++;
+    int current_timestamp = 1;
+    
+    // Create a copy of frame pool and page table for simulation
+    int local_frame_pool[POOLMAX];
+    int local_frame_cnt = frame_cnt;
+    struct PTE local_page_table[TABLEMAX];
+    
+    for (int i = 0; i < table_cnt; i++) {
+        local_page_table[i] = page_table[i];
     }
-
+    for (int i = 0; i < frame_cnt; i++) {
+        local_frame_pool[i] = frame_pool[i];
+    }
+    
+    for (int i = 0; i < reference_cnt; i++) {
+        int page_number = reference_string[i];
+        
+        if (!local_page_table[page_number].is_valid) {
+            faults++;
+            
+            if (local_frame_cnt > 0) {
+                // Use free frame
+                int frame = local_frame_pool[0];
+                for (int j = 0; j < local_frame_cnt - 1; j++) {
+                    local_frame_pool[j] = local_frame_pool[j + 1];
+                }
+                local_frame_cnt--;
+                
+                local_page_table[page_number].is_valid = 1;
+                local_page_table[page_number].frame_number = frame;
+                local_page_table[page_number].arrival_timestamp = current_timestamp;
+                local_page_table[page_number].last_access_timestamp = current_timestamp;
+                local_page_table[page_number].reference_count = 1;
+            } else {
+                // Replace using LRU
+                int oldest_access = INT_MAX;
+                int page_to_replace = -1;
+                
+                for (int j = 0; j < table_cnt; j++) {
+                    if (local_page_table[j].is_valid && local_page_table[j].last_access_timestamp < oldest_access) {
+                        oldest_access = local_page_table[j].last_access_timestamp;
+                        page_to_replace = j;
+                    }
+                }
+                
+                if (page_to_replace != -1) {
+                    int frame = local_page_table[page_to_replace].frame_number;
+                    
+                    local_page_table[page_to_replace].is_valid = 0;
+                    local_page_table[page_to_replace].frame_number = -1;
+                    local_page_table[page_to_replace].arrival_timestamp = -1;
+                    local_page_table[page_to_replace].last_access_timestamp = -1;
+                    local_page_table[page_to_replace].reference_count = -1;
+                    
+                    local_page_table[page_number].is_valid = 1;
+                    local_page_table[page_number].frame_number = frame;
+                    local_page_table[page_number].arrival_timestamp = current_timestamp;
+                    local_page_table[page_number].last_access_timestamp = current_timestamp;
+                    local_page_table[page_number].reference_count = 1;
+                }
+            }
+        } else {
+            // Page is in memory, update access info
+            local_page_table[page_number].last_access_timestamp = current_timestamp;
+            local_page_table[page_number].reference_count++;
+        }
+        
+        current_timestamp++;
+    }
+    
     return faults;
 }
 
-// ------------------------------------
-// Process Page Access LFU
-// ------------------------------------
-int process_page_access_lfu(struct PTE page_table[TABLEMAX], int *table_cnt,
-                            int page_number, int frame_pool[POOLMAX],
-                            int *frame_cnt, int current_timestamp) {
-    struct PTE *pte = &page_table[page_number];
-    if (pte->is_valid) {
-        pte->last_access_timestamp = current_timestamp;
-        pte->reference_count++;
-        return pte->frame_number;
+int process_page_access_lfu(struct PTE page_table[TABLEMAX], int *table_cnt, int page_number, int frame_pool[POOLMAX], int *frame_cnt, int current_timestamp) {
+    // Check if page is already in memory
+    if (page_table[page_number].is_valid) {
+        page_table[page_number].last_access_timestamp = current_timestamp;
+        page_table[page_number].reference_count++;
+        return page_table[page_number].frame_number;
     }
+    
+    // Page fault - check if free frames available
     if (*frame_cnt > 0) {
+        // Use a free frame from pool
         int frame = frame_pool[0];
-        for (int i = 0; i < *frame_cnt - 1; i++) frame_pool[i] = frame_pool[i + 1];
+        
+        // Remove frame from pool
+        for (int i = 0; i < *frame_cnt - 1; i++) {
+            frame_pool[i] = frame_pool[i + 1];
+        }
         (*frame_cnt)--;
-        pte->is_valid = 1;
-        pte->frame_number = frame;
-        pte->arrival_timestamp = current_timestamp;
-        pte->last_access_timestamp = current_timestamp;
-        pte->reference_count = 1;
+        
+        // Update page table entry
+        page_table[page_number].is_valid = 1;
+        page_table[page_number].frame_number = frame;
+        page_table[page_number].arrival_timestamp = current_timestamp;
+        page_table[page_number].last_access_timestamp = current_timestamp;
+        page_table[page_number].reference_count = 1;
+        
         return frame;
     }
-    int victim = lfu_victim(page_table, *table_cnt);
-    if (victim == -1) return -1;
-    int frame = page_table[victim].frame_number;
-    page_table[victim].is_valid = 0;
-    page_table[victim].frame_number = -1;
-    page_table[victim].arrival_timestamp = -1;
-    page_table[victim].last_access_timestamp = -1;
-    page_table[victim].reference_count = -1;
-    pte->is_valid = 1;
-    pte->frame_number = frame;
-    pte->arrival_timestamp = current_timestamp;
-    pte->last_access_timestamp = current_timestamp;
-    pte->reference_count = 1;
-    return frame;
+    
+    // No free frames - need to replace a page using LFU
+    int min_ref_count = INT_MAX;
+    int oldest_timestamp = INT_MAX;
+    int page_to_replace = -1;
+    
+    // Find page with smallest reference count, and if tie, smallest arrival timestamp
+    for (int i = 0; i < *table_cnt; i++) {
+        if (page_table[i].is_valid) {
+            if (page_table[i].reference_count < min_ref_count) {
+                min_ref_count = page_table[i].reference_count;
+                oldest_timestamp = page_table[i].arrival_timestamp;
+                page_to_replace = i;
+            } else if (page_table[i].reference_count == min_ref_count && 
+                       page_table[i].arrival_timestamp < oldest_timestamp) {
+                oldest_timestamp = page_table[i].arrival_timestamp;
+                page_to_replace = i;
+            }
+        }
+    }
+    
+    if (page_to_replace != -1) {
+        int frame = page_table[page_to_replace].frame_number;
+        
+        // Evict the old page
+        page_table[page_to_replace].is_valid = 0;
+        page_table[page_to_replace].frame_number = -1;
+        page_table[page_to_replace].arrival_timestamp = -1;
+        page_table[page_to_replace].last_access_timestamp = -1;
+        page_table[page_to_replace].reference_count = -1;
+        
+        // Load new page
+        page_table[page_number].is_valid = 1;
+        page_table[page_number].frame_number = frame;
+        page_table[page_number].arrival_timestamp = current_timestamp;
+        page_table[page_number].last_access_timestamp = current_timestamp;
+        page_table[page_number].reference_count = 1;
+        
+        return frame;
+    }
+    
+    return -1; // Should not reach here
 }
 
-// ------------------------------------
-// Count Page Faults LFU (timestamp starts at 1)
-// ------------------------------------
-int count_page_faults_lfu(struct PTE page_table[TABLEMAX], int table_cnt,
-                          int reference_string[REFERENCEMAX], int reference_cnt,
-                          int frame_pool[POOLMAX], int frame_cnt) {
-    struct PTE pt[TABLEMAX];
-    int pool[POOLMAX];
-    int free_cnt = frame_cnt;
-    int tc = table_cnt;
-
-    for (int i = 0; i < table_cnt; i++) pt[i] = page_table[i];
-    for (int i = 0; i < frame_cnt; i++) pool[i] = frame_pool[i];
-
+int count_page_faults_lfu(struct PTE page_table[TABLEMAX], int table_cnt, int reference_string[REFERENCEMAX], int reference_cnt, int frame_pool[POOLMAX], int frame_cnt) {
     int faults = 0;
-    int timestamp = 1;
-
-    for (int i = 0; i < reference_cnt; i++) {
-        int page = reference_string[i];
-        int was_valid = pt[page].is_valid;
-        if (!was_valid) faults++;
-        process_page_access_lfu(pt, &tc, page, pool, &free_cnt, timestamp);
-        timestamp++;
+    int current_timestamp = 1;
+    
+    // Create a copy of frame pool and page table for simulation
+    int local_frame_pool[POOLMAX];
+    int local_frame_cnt = frame_cnt;
+    struct PTE local_page_table[TABLEMAX];
+    
+    for (int i = 0; i < table_cnt; i++) {
+        local_page_table[i] = page_table[i];
     }
-
+    for (int i = 0; i < frame_cnt; i++) {
+        local_frame_pool[i] = frame_pool[i];
+    }
+    
+    for (int i = 0; i < reference_cnt; i++) {
+        int page_number = reference_string[i];
+        
+        if (!local_page_table[page_number].is_valid) {
+            faults++;
+            
+            if (local_frame_cnt > 0) {
+                // Use free frame
+                int frame = local_frame_pool[0];
+                for (int j = 0; j < local_frame_cnt - 1; j++) {
+                    local_frame_pool[j] = local_frame_pool[j + 1];
+                }
+                local_frame_cnt--;
+                
+                local_page_table[page_number].is_valid = 1;
+                local_page_table[page_number].frame_number = frame;
+                local_page_table[page_number].arrival_timestamp = current_timestamp;
+                local_page_table[page_number].last_access_timestamp = current_timestamp;
+                local_page_table[page_number].reference_count = 1;
+            } else {
+                // Replace using LFU
+                int min_ref_count = INT_MAX;
+                int oldest_timestamp = INT_MAX;
+                int page_to_replace = -1;
+                
+                for (int j = 0; j < table_cnt; j++) {
+                    if (local_page_table[j].is_valid) {
+                        if (local_page_table[j].reference_count < min_ref_count) {
+                            min_ref_count = local_page_table[j].reference_count;
+                            oldest_timestamp = local_page_table[j].arrival_timestamp;
+                            page_to_replace = j;
+                        } else if (local_page_table[j].reference_count == min_ref_count && 
+                                   local_page_table[j].arrival_timestamp < oldest_timestamp) {
+                            oldest_timestamp = local_page_table[j].arrival_timestamp;
+                            page_to_replace = j;
+                        }
+                    }
+                }
+                
+                if (page_to_replace != -1) {
+                    int frame = local_page_table[page_to_replace].frame_number;
+                    
+                    local_page_table[page_to_replace].is_valid = 0;
+                    local_page_table[page_to_replace].frame_number = -1;
+                    local_page_table[page_to_replace].arrival_timestamp = -1;
+                    local_page_table[page_to_replace].last_access_timestamp = -1;
+                    local_page_table[page_to_replace].reference_count = -1;
+                    
+                    local_page_table[page_number].is_valid = 1;
+                    local_page_table[page_number].frame_number = frame;
+                    local_page_table[page_number].arrival_timestamp = current_timestamp;
+                    local_page_table[page_number].last_access_timestamp = current_timestamp;
+                    local_page_table[page_number].reference_count = 1;
+                }
+            }
+        } else {
+            // Page is in memory, update access info
+            local_page_table[page_number].last_access_timestamp = current_timestamp;
+            local_page_table[page_number].reference_count++;
+        }
+        
+        current_timestamp++;
+    }
+    
     return faults;
 }

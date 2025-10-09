@@ -46,17 +46,25 @@ static int choose_fifo_victim_pte(struct PTE *page_table, int table_cnt) {
     return victim;
 }
 
-/* LRU victim: smallest last_access_timestamp; tie-break -> smallest frame_number */
+/* LRU victim: smallest last_access_timestamp;
+ * tie -> smallest arrival_timestamp;
+ * tie -> smallest frame_number
+ */
 static int choose_lru_victim_pte(struct PTE *page_table, int table_cnt) {
     int victim = -1;
     int min_last = INT_MAX;
+    int min_arr = INT_MAX;
     int min_frame = INT_MAX;
     for (int i = 0; i < table_cnt; ++i) {
         if (page_table[i].is_valid) {
             int lat = page_table[i].last_access_timestamp;
+            int at = page_table[i].arrival_timestamp;
             int fn = page_table[i].frame_number;
-            if (lat < min_last || (lat == min_last && fn < min_frame)) {
+            if (lat < min_last ||
+                (lat == min_last && at < min_arr) ||
+                (lat == min_last && at == min_arr && fn < min_frame)) {
                 min_last = lat;
+                min_arr = at;
                 min_frame = fn;
                 victim = i;
             }

@@ -75,8 +75,10 @@ int count_page_faults_fifo(struct PTE page_table[TABLEMAX], int table_cnt, int r
     int local_frame_cnt = frame_cnt;
     struct PTE local_page_table[TABLEMAX];
     
+    // Initialize local page table - only copy the structure, don't assume initial valid pages count as "already loaded"
     for (int i = 0; i < table_cnt; i++) {
         local_page_table[i] = page_table[i];
+        // If a page is already valid, it doesn't count as a fault, but we need to track it properly
     }
     for (int i = 0; i < frame_cnt; i++) {
         local_frame_pool[i] = frame_pool[i];
@@ -214,12 +216,24 @@ int count_page_faults_lru(struct PTE page_table[TABLEMAX], int table_cnt, int re
     int local_frame_cnt = frame_cnt;
     struct PTE local_page_table[TABLEMAX];
     
+    // Initialize local page table
     for (int i = 0; i < table_cnt; i++) {
         local_page_table[i] = page_table[i];
     }
     for (int i = 0; i < frame_cnt; i++) {
         local_frame_pool[i] = frame_pool[i];
     }
+    
+    // Count initial frames that are already in use
+    int initial_used_frames = 0;
+    for (int i = 0; i < table_cnt; i++) {
+        if (local_page_table[i].is_valid) {
+            initial_used_frames++;
+        }
+    }
+    
+    // Adjust available frames based on initial state
+    local_frame_cnt += initial_used_frames;
     
     for (int i = 0; i < reference_cnt; i++) {
         int page_number = reference_string[i];
@@ -228,20 +242,50 @@ int count_page_faults_lru(struct PTE page_table[TABLEMAX], int table_cnt, int re
             faults++;
             
             if (local_frame_cnt > 0) {
-                // Use free frame
-                int frame = local_frame_pool[0];
-                for (int j = 0; j < local_frame_cnt - 1; j++) {
-                    local_frame_pool[j] = local_frame_pool[j + 1];
+                // Check if we have free frames in pool or need to use one that's already allocated
+                if (frame_cnt > 0 && local_frame_pool[0] != -1) {
+                    // Use free frame from pool
+                    int frame = local_frame_pool[0];
+                    for (int j = 0; j < local_frame_cnt - 1; j++) {
+                        local_frame_pool[j] = local_frame_pool[j + 1];
+                    }
+                    local_frame_cnt--;
+                    
+                    local_page_table[page_number].is_valid = 1;
+                    local_page_table[page_number].frame_number = frame;
+                    local_page_table[page_number].arrival_timestamp = current_timestamp;
+                    local_page_table[page_number].last_access_timestamp = current_timestamp;
+                    local_page_table[page_number].reference_count = 1;
+                } else {
+                    // All frames are already in use, need replacement
+                    int oldest_access = INT_MAX;
+                    int page_to_replace = -1;
+                    
+                    for (int j = 0; j < table_cnt; j++) {
+                        if (local_page_table[j].is_valid && local_page_table[j].last_access_timestamp < oldest_access) {
+                            oldest_access = local_page_table[j].last_access_timestamp;
+                            page_to_replace = j;
+                        }
+                    }
+                    
+                    if (page_to_replace != -1) {
+                        int frame = local_page_table[page_to_replace].frame_number;
+                        
+                        local_page_table[page_to_replace].is_valid = 0;
+                        local_page_table[page_to_replace].frame_number = -1;
+                        local_page_table[page_to_replace].arrival_timestamp = -1;
+                        local_page_table[page_to_replace].last_access_timestamp = -1;
+                        local_page_table[page_to_replace].reference_count = -1;
+                        
+                        local_page_table[page_number].is_valid = 1;
+                        local_page_table[page_number].frame_number = frame;
+                        local_page_table[page_number].arrival_timestamp = current_timestamp;
+                        local_page_table[page_number].last_access_timestamp = current_timestamp;
+                        local_page_table[page_number].reference_count = 1;
+                    }
                 }
-                local_frame_cnt--;
-                
-                local_page_table[page_number].is_valid = 1;
-                local_page_table[page_number].frame_number = frame;
-                local_page_table[page_number].arrival_timestamp = current_timestamp;
-                local_page_table[page_number].last_access_timestamp = current_timestamp;
-                local_page_table[page_number].reference_count = 1;
             } else {
-                // Replace using LRU
+                // No free frames - replace using LRU
                 int oldest_access = INT_MAX;
                 int page_to_replace = -1;
                 

@@ -1,8 +1,12 @@
 /*
  * virtual.c
  *
- * Implementations for the Virtual Memory lab functions.
- * Matches signatures from oslabs.h.
+ * Virtual Memory lab functions. Matches signatures declared in oslabs.h.
+ *
+ * Changes per user request:
+ *  - count_page_faults_fifo: timestamp starts at 1 (timestamp = i + 1)
+ *  - count_page_faults_lru: timestamp starts at 0 (timestamp = i)
+ *  - count_page_faults_lfu: unchanged (timestamp = i + 1)
  */
 
 #include <stdio.h>
@@ -79,10 +83,7 @@ static void invalidate_pte(struct PTE *p) {
     p->reference_count = -1;
 }
 
-/* ---------------- FIFO single access ----------------
- * int process_page_access_fifo(struct PTE *page_table, int *table_cnt, int page_number,
- *                              int *frame_pool, int *frame_cnt, int current_timestamp);
- */
+/* ---------------- FIFO single access ---------------- */
 int process_page_access_fifo(struct PTE *page_table, int *table_cnt, int page_number,
                              int *frame_pool, int *frame_cnt, int current_timestamp) {
     int tcnt = (table_cnt ? *table_cnt : TABLEMAX);
@@ -118,14 +119,7 @@ int process_page_access_fifo(struct PTE *page_table, int *table_cnt, int page_nu
 }
 
 /* ---------------- FIFO page-fault counting ----------------
- * int count_page_faults_fifo(struct PTE *page_table, int table_cnt,
- *                            int refrence_string[REFERENCEMAX], int reference_cnt,
- *                            int frame_pool[POOLMAX], int frame_cnt);
- *
- * Changes:
- *  - timestamp = i + 1
- *  - use pop_frame_front_int for free frames
- *  - invalidate victim with -1 fields (invalidate_pte)
+ * timestamp starts at 1 (timestamp = i + 1)
  */
 int count_page_faults_fifo(struct PTE *page_table, int table_cnt,
                            int refrence_string[REFERENCEMAX], int reference_cnt,
@@ -144,7 +138,6 @@ int count_page_faults_fifo(struct PTE *page_table, int table_cnt,
             faults++;
             if (frame_cnt > 0) {
                 int fn = pop_frame_front_int(frame_pool, &frame_cnt);
-                (void)fn; /* avoid unused warning in some compilers, we use it below */
                 page_table[page].is_valid = 1;
                 page_table[page].frame_number = fn;
                 page_table[page].arrival_timestamp = timestamp;
@@ -168,10 +161,7 @@ int count_page_faults_fifo(struct PTE *page_table, int table_cnt,
     return faults;
 }
 
-/* ---------------- LRU single access ----------------
- * int process_page_access_lru(struct PTE *page_table, int *table_cnt, int page_number,
- *                             int *frame_pool, int *frame_cnt, int current_timestamp);
- */
+/* ---------------- LRU single access ---------------- */
 int process_page_access_lru(struct PTE *page_table, int *table_cnt, int page_number,
                             int *frame_pool, int *frame_cnt, int current_timestamp) {
     int tcnt = (table_cnt ? *table_cnt : TABLEMAX);
@@ -207,14 +197,7 @@ int process_page_access_lru(struct PTE *page_table, int *table_cnt, int page_num
 }
 
 /* ---------------- LRU page-fault counting ----------------
- * int count_page_faults_lru(struct PTE *page_table, int table_cnt,
- *                           int refrence_string[REFERENCEMAX], int reference_cnt,
- *                           int frame_pool[POOLMAX], int frame_cnt);
- *
- * Changes:
- *  - timestamp = i + 1
- *  - use pop_frame_front_int for free frames
- *  - invalidate victim with -1 fields (invalidate_pte)
+ * timestamp starts at 0 (timestamp = i)
  */
 int count_page_faults_lru(struct PTE *page_table, int table_cnt,
                           int refrence_string[REFERENCEMAX], int reference_cnt,
@@ -224,7 +207,7 @@ int count_page_faults_lru(struct PTE *page_table, int table_cnt,
 
     for (int i = 0; i < reference_cnt; ++i) {
         int page = refrence_string[i];
-        int timestamp = i + 1;
+        int timestamp = i; /* start at 0 as requested */
 
         if (page >= 0 && page < table_cnt && page_table[page].is_valid) {
             page_table[page].last_access_timestamp = timestamp;
@@ -256,10 +239,7 @@ int count_page_faults_lru(struct PTE *page_table, int table_cnt,
     return faults;
 }
 
-/* ---------------- LFU single access ----------------
- * int process_page_access_lfu(struct PTE *page_table, int *table_cnt, int page_number,
- *                             int *frame_pool, int *frame_cnt, int current_timestamp);
- */
+/* ---------------- LFU single access ---------------- */
 int process_page_access_lfu(struct PTE *page_table, int *table_cnt, int page_number,
                             int *frame_pool, int *frame_cnt, int current_timestamp) {
     int tcnt = (table_cnt ? *table_cnt : TABLEMAX);
@@ -295,14 +275,7 @@ int process_page_access_lfu(struct PTE *page_table, int *table_cnt, int page_num
 }
 
 /* ---------------- LFU page-fault counting ----------------
- * int count_page_faults_lfu(struct PTE *page_table, int table_cnt,
- *                           int refrence_string[REFERENCEMAX], int reference_cnt,
- *                           int frame_pool[POOLMAX], int frame_cnt);
- *
- * Changes:
- *  - timestamp = i + 1
- *  - use pop_frame_front_int for free frames
- *  - invalidate victim with -1 fields (invalidate_pte)
+ * timestamp starts at 1 (timestamp = i + 1) — left unchanged
  */
 int count_page_faults_lfu(struct PTE *page_table, int table_cnt,
                           int refrence_string[REFERENCEMAX], int reference_cnt,
@@ -312,7 +285,7 @@ int count_page_faults_lfu(struct PTE *page_table, int table_cnt,
 
     for (int i = 0; i < reference_cnt; ++i) {
         int page = refrence_string[i];
-        int timestamp = i + 1;
+        int timestamp = i + 1; /* start at 1 */
 
         if (page >= 0 && page < table_cnt && page_table[page].is_valid) {
             page_table[page].last_access_timestamp = timestamp;
